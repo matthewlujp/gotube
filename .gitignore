@@ -1,0 +1,9 @@
+vender
+
+lib/mocks/data/page.html
+lib/mocks/data/script.js
+
+lib/mocks/mock_client.go
+lib/mocks/mock_decipher.go
+
+downloader
