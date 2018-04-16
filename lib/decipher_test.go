@@ -49,7 +49,7 @@ func TestExtractConverters(t *testing.T) {
 		"ml": "function(a,b){a.splice(0,b)}",
 	}
 	if strConverters, err := extractConverters("EK", js); err != nil {
-		t.Errorf("failed to extract raw converters, %s")
+		t.Errorf("failed to extract raw converters, %s", err)
 	} else if !reflect.DeepEqual(strConverters, expected) {
 		t.Errorf("wrong raw converters extracted, got %s, expected %s", strConverters, expected)
 	}
