@@ -30,6 +30,8 @@ const (
 )
 
 var (
+	validURL                = "https://www.youtube.com/watch?v=iEPTlhBmwRg"
+	dummyURL                = "https://www.mytube.com/watch?v=iEPTlhBmwRg"
 	compressedFileNameRegex = regexp.MustCompile(`(.+).zip$`)
 	jsURL                   = "https://youtube.com/yts/jsbin/player-vfllqtOs7/ja_JP/base.js"
 	title                   = "Maroon 5 - Moves Like Jagger ft. Christina Aguilera"

@@ -47,7 +47,7 @@ func TestNewStream(t *testing.T) {
 		decipherer: nil,
 	}
 	if err != nil {
-		t.Error("failed to build stream, %s", err)
+		t.Errorf("failed to build stream, %s", err)
 	} else if !reflect.DeepEqual(*stream, expected) {
 		t.Errorf("wrong stream is built,\ngot: %v,\nexpected: %v", *stream, expected)
 	}

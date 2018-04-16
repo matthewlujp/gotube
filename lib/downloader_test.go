@@ -19,22 +19,34 @@ func (c *fakeClient) Get(url string) (*http.Response, error) {
 	return c.fakeGet(url)
 }
 
+func TestNewDownloader(t *testing.T) {
+	// invalid or non youtube url
+	if _, err := NewDownloader(dummyURL); err == nil {
+		t.Errorf("invalid or non youtube url should be rejected, but didn't for %s", dummyURL)
+	}
+
+	// watch youtube url
+	if _, err := NewDownloader(validURL); err != nil {
+		t.Errorf("failed to instantiate player from %s", validURL)
+	}
+}
+
 func TestFetchStreamManifests(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	c := mock.NewMockclient(ctrl)
 
 	gomock.InOrder(
-		c.EXPECT().Get(watchYoutubeURL).Return(getMockPage()),
+		c.EXPECT().Get(validURL).Return(getMockPage()),
 		c.EXPECT().Get(jsURL).Return(getMockScript()),
 	)
 
-	player := watchPlayer{
-		url:    watchYoutubeURL,
+	downloader := YoutubeDownloader{
+		url:    validURL,
 		client: c,
 	}
 
-	streams, errFetch := player.FetchStreamManifests()
+	streams, errFetch := downloader.FetchStreamManifests()
 	if errFetch != nil {
 		t.Errorf("error while fetching stream manifests, %s", errFetch)
 	}
@@ -109,27 +121,5 @@ func TestInflateStringStream(t *testing.T) {
 				t.Errorf("%s in stream %s, while in expected %s", k, val, v)
 			}
 		}
-	}
-}
-
-func TestIsEmbed(t *testing.T) {
-	p := watchPlayer{}
-	if p.IsEmbed() {
-		t.Errorf("watchPlayer is not embed format, got %t", p.IsEmbed())
-	}
-}
-
-func TestGetStreams(t *testing.T) {
-	streamSlice := []*Stream{
-		&Stream{url: "hoge"},
-		&Stream{url: "foo"},
-		&Stream{url: "bar"},
-	}
-	p := watchPlayer{
-		streams: streamSlice,
-	}
-
-	if !reflect.DeepEqual(p.GetStreams(), streamSlice) {
-		t.Errorf("wrong streams returned, got %v, expected %v", p.GetStreams(), streamSlice)
 	}
 }

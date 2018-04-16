@@ -11,6 +11,7 @@ import (
 )
 
 var (
+	logger                 *errorLogger
 	youtubeWatchURLPattern = regexp.MustCompile(`https?://www.youtube.com/watch\?v=(\w{11})`)
 	jsURLRegex             = regexp.MustCompile(`.\"js\":\"(.+?)\"`)
 	titleRegex             = regexp.MustCompile(`"title":"(.+?)","`)
@@ -18,18 +19,30 @@ var (
 	urlFmtsRegex           = regexp.MustCompile(`"url_encoded_fmt_stream_map":"(.+?)"`)
 )
 
-type watchPlayer struct {
+func init() {
+	logger = newLogger(true)
+}
+
+// YoutubeDownloader collects information of a Youtube video and fetches streams of it.
+type YoutubeDownloader struct {
 	client  client
-	streams []*Stream
+	Streams []*Stream // accessable
 	url     string
 	title   string
 }
 
-func (p *watchPlayer) IsEmbed() bool {
-	return false
+// NewDownloader returns a instance which implements YoutubeDownloader according to a given url
+func NewDownloader(url string) (*YoutubeDownloader, error) {
+	bURL := []byte(url)
+	if youtubeWatchURLPattern.Match(bURL) {
+		return &YoutubeDownloader{client: &youtubeClient{}, url: url}, nil
+	}
+	return nil, fmt.Errorf("unexpected URL format %s", url)
 }
 
-func (p *watchPlayer) FetchStreamManifests() ([]*Stream, error) {
+// FetchStreamManifests build Stream instances based on information collected
+// By using one of obtained Stream instances, video can be downloaded.
+func (p *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
 	res, errGet := p.client.Get(p.url)
 	if errGet != nil {
 		return nil, fmt.Errorf("request to %s failed, %s", p.url, errGet)
@@ -73,7 +86,7 @@ func (p *watchPlayer) FetchStreamManifests() ([]*Stream, error) {
 	}
 
 	stringStreams := strings.Split(videoInfo["streams"], ",")
-	p.streams = make([]*Stream, 0, len(stringStreams))
+	p.Streams = make([]*Stream, 0, len(stringStreams))
 	for _, ss := range stringStreams {
 		streamInfo, errInflate := inflateStringStream(ss)
 		if errInflate != nil {
@@ -85,17 +98,13 @@ func (p *watchPlayer) FetchStreamManifests() ([]*Stream, error) {
 			logger.printf("%s", errBuildStream)
 			continue
 		}
-		p.streams = append(p.streams, stream)
+		p.Streams = append(p.Streams, stream)
 	}
 
-	if len(p.streams) < 1 {
-		return p.streams, errors.New("no stream is obtained")
+	if len(p.Streams) < 1 {
+		return p.Streams, errors.New("no stream is obtained")
 	}
-	return p.streams, nil
-}
-
-func (p *watchPlayer) GetStreams() []*Stream {
-	return p.streams
+	return p.Streams, nil
 }
 
 func extractInfo(html []byte) (map[string]string, error) {

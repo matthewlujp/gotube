@@ -10,15 +10,20 @@ import (
 )
 
 func main() {
+	usageText := "Usage: gotube [Youtube video url] [file path to save a downloaded video]"
+	if len(os.Args) < 3 {
+		panic(usageText)
+	}
+
 	url := os.Args[1]
 	saveFilePath := os.Args[2]
 
-	p, errNewPlayer := gotube.NewPlayer(url)
+	downloader, errNewPlayer := gotube.NewDownloader(url)
 	if errNewPlayer != nil {
 		panic(errNewPlayer)
 	}
-	log.Printf("new player created")
-	streams, errFetch := p.FetchStreamManifests()
+
+	streams, errFetch := downloader.FetchStreamManifests()
 	if errFetch != nil {
 		panic(errFetch)
 	}
@@ -38,14 +43,9 @@ func main() {
 			if errOpen != nil {
 				panic(errOpen)
 			}
-			_, errCopy := io.Copy(f, dataReader)
-			if errCopy != nil {
-				panic(errCopy)
+			if _, err := io.Copy(f, dataReader); err != nil {
+				panic(err)
 			}
-			// errWrite := ioutil.WriteFile(saveFilePath, data, 0777)
-			// if errWrite != nil {
-			// 	panic(errWrite)
-			// }
 			fmt.Printf("video contents of %s is saved in %s.\nbitrate %s, fps %s, resolution %s\n", url, saveFilePath, s.Abr, s.Fps, s.Resolution)
 			return
 		}

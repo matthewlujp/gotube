@@ -32,6 +32,30 @@ type Stream struct {
 	decipherer decipherer
 }
 
+// Download returns a reader for downloaded video stream
+func (s *Stream) Download() (io.ReadCloser, error) {
+	downloadURL, errURLBuild := s.buildDownloadURL()
+	if errURLBuild != nil {
+		return nil, errURLBuild
+	}
+	logger.printf("download url prepared: %s", downloadURL)
+
+	res, err := s.client.Get(downloadURL)
+	if err != nil {
+		logger.printf("download %s failed, %s", downloadURL, err)
+		return nil, err
+	}
+
+	if res.StatusCode != http.StatusOK {
+		res.Body.Close()
+		err = fmt.Errorf("download %s got status %d", downloadURL, res.StatusCode)
+		logger.printf("%s", err)
+		return nil, err
+	}
+	logger.print("download completed")
+	return res.Body, nil
+}
+
 func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, error) {
 	s := Stream{}
 
@@ -104,29 +128,6 @@ func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, e
 	s.client = c
 	s.decipherer = d
 	return &s, nil
-}
-
-func (s *Stream) Download() (io.ReadCloser, error) {
-	downloadURL, errURLBuild := s.buildDownloadURL()
-	if errURLBuild != nil {
-		return nil, errURLBuild
-	}
-	logger.printf("download url prepared: %s", downloadURL)
-
-	res, err := s.client.Get(downloadURL)
-	if err != nil {
-		logger.printf("download %s failed, %s", downloadURL, err)
-		return nil, err
-	}
-	// defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		err = fmt.Errorf("download %s got status %d", downloadURL, res.StatusCode)
-		logger.printf("%s", err)
-		return nil, err
-	}
-	logger.print("download completed")
-	return res.Body, nil
 }
 
 func (s *Stream) buildDownloadURL() (string, error) {
