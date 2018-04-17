@@ -58,7 +58,7 @@ func TestFetchStreamManifests(t *testing.T) {
 		client: c,
 	}
 
-	if err := downloader.FetchStreamManifests(); err != nil {
+	if err := downloader.FetchStreams(); err != nil {
 		t.Errorf("error while fetching stream manifests, %s", err)
 	}
 
@@ -104,7 +104,7 @@ func TestFetchStreamManifestsForAgeRestricted(t *testing.T) {
 		client: c,
 	}
 
-	if err := downloader.FetchStreamManifests(); err != nil {
+	if err := downloader.FetchStreams(); err != nil {
 		t.Errorf("error while fetching stream manifests, %s", err)
 	}
 

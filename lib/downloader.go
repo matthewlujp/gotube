@@ -62,9 +62,9 @@ func (dl *YoutubeDownloader) getResource(url string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// FetchStreamManifests build Stream instances based on information collected
+// FetchStreams build Stream instances based on information collected
 // By using one of obtained Stream instances, video can be downloaded.
-func (dl *YoutubeDownloader) FetchStreamManifests() error {
+func (dl *YoutubeDownloader) FetchStreams() error {
 	videoData, errExtractData := dl.extractData() // extract title, jsURL, and string form streams
 	if errExtractData != nil {
 		return errExtractData
