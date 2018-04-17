@@ -23,13 +23,12 @@ func main() {
 		panic(errNewPlayer)
 	}
 
-	streams, errFetch := downloader.FetchStreamManifests()
-	if errFetch != nil {
+	if err := downloader.FetchStreamManifests(); err != nil {
 		panic(errFetch)
 	}
 	log.Printf("streams fetched, %v", streams)
 
-	for _, s := range streams {
+	for _, s := range downloader.Streams {
 		log.Println("strem", s.MediaType, s.Format, s.Resolution, s.Abr, s.VideoCodec, s.AudioCodec)
 		if s.MediaType == "video" && s.Format == "mp4" && s.AudioCodec != "" {
 			dataReader, errDownload := s.Download()
