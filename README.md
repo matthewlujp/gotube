@@ -59,7 +59,7 @@ You can also designate save file path with option -s as follows.
 $ gotube "https://www.youtube.com/watch?v=09R8_2nJtjg" -s youtube_video.mp4
 ```
 
-There are pre-buit binaries for OSX, Linxus, and Windos (all of them are for amd64, or x86_64).
+There are pre-buit binaries for OSX, Linxus, and Windos (all of them are for amd64, i.e., x86_64).
 You can pick one from bins.
 
 
