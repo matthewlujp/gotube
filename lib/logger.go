@@ -6,25 +6,31 @@ import (
 )
 
 type errorLogger struct {
-	deploy bool
+	debug  bool
 	logger *log.Logger
 }
 
 func newLogger(deploy bool) *errorLogger {
 	return &errorLogger{
-		deploy: deploy,
+		debug:  deploy,
 		logger: log.New(os.Stdout, "gotube >", 0),
 	}
 }
 
 func (l *errorLogger) print(message string) {
-	l.logger.Print(message)
+	if l.debug {
+		l.logger.Print(message)
+	}
 }
 
 func (l *errorLogger) printf(format string, v ...interface{}) {
-	l.logger.Printf(format, v...)
+	if l.debug {
+		l.logger.Printf(format, v...)
+	}
 }
 
 func (l *errorLogger) fatal(message string) {
-	l.logger.Fatal(message)
+	if l.debug {
+		l.logger.Fatal(message)
+	}
 }

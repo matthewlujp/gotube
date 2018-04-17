@@ -19,14 +19,10 @@ var (
 	adaptiveFmtsRegex              = regexp.MustCompile(`"adaptive_fmts":"(.+?)"`)
 	urlFmtsRegex                   = regexp.MustCompile(`"url_encoded_fmt_stream_map":"(.+?)"`)
 	ageRestrictedAdaptiveFmtsRegex = regexp.MustCompile(`adaptive_fmts=(.+?)&`)
-	ageRestrictedUrlFmtsRegex      = regexp.MustCompile(`url_encoded_fmt_stream_map=(.+?)&`)
+	ageRestrictedURLFmtsRegex      = regexp.MustCompile(`url_encoded_fmt_stream_map=(.+?)&`)
 	stsRegex                       = regexp.MustCompile(`"sts"\s*:\s*(\d+)`)
 	videoIDRegex                   = regexp.MustCompile(`watch\?v=([\w-]{11})`)
 )
-
-func init() {
-	logger = newLogger(true)
-}
 
 // YoutubeDownloader collects information of a Youtube video and fetches streams of it.
 type YoutubeDownloader struct {
@@ -203,7 +199,7 @@ func extractStreams(html, videoInfo []byte, ageRestricted bool) ([]string, error
 	streams := make([]string, 0, 2)
 
 	if ageRestricted {
-		for _, rgx := range []*regexp.Regexp{ageRestrictedAdaptiveFmtsRegex, ageRestrictedUrlFmtsRegex} {
+		for _, rgx := range []*regexp.Regexp{ageRestrictedAdaptiveFmtsRegex, ageRestrictedURLFmtsRegex} {
 			if strms := rgx.FindSubmatch(videoInfo); strms != nil {
 				if decoded, err := url.QueryUnescape(string(strms[1][:])); err == nil {
 					streams = append(streams, decoded)

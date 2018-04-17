@@ -56,6 +56,17 @@ func (s *Stream) Download() (io.ReadCloser, error) {
 	return res.Body, nil
 }
 
+func (s *Stream) String() string {
+	base := fmt.Sprintf("Stream<MediaType:%s Quality:%s Format:%s Resolution:%s", s.MediaType, s.Quality, s.Format, s.Resolution)
+	if s.Is3D {
+		base += " 3D"
+	}
+	if s.IsLive {
+		base += " Live"
+	}
+	return base + ">"
+}
+
 func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, error) {
 	s := Stream{}
 
