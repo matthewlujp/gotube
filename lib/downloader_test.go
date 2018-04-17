@@ -3,20 +3,25 @@ package gotube
 import (
 	"net/http"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/golang/mock/gomock"
 	mock "github.com/matthewlujp/gotube/lib/mocks"
 )
 
-var (
-	validURL                  = "https://www.youtube.com/watch?v=iEPTlhBmwRg"
-	dummyURL                  = "https://www.mytube.com/watch?v=iEPTlhBmwRg"
-	ageRestrictedURL          = "https://www.youtube.com/watch?v=6LZM3_wp2ps&has_verified=1"
-	ageRestrictedEmbedURL     = "https://www.youtube.com/embed/6LZM3_wp2ps"
-	ageRestrictedJsURL        = "https://youtube.com/yts/jsbin/player-vflX7BSrP/ja_JP/base.js"
-	ageRestrictedTitle        = "Watch_Dogs: Open World Gameplay Premiere Commented [North America]"
-	ageRestrictedVideoInfoURL = "https://youtube.com/get_video_info?video_id=6LZM3_wp2ps&eurl=https%3A%2F%2Fyoutube.googleapis.com%2Fv%2F6LZM3_wp2ps&sts=17632"
+const (
+	validURL                   = "https://www.youtube.com/watch?v=iEPTlhBmwRg"
+	dummyURL                   = "https://www.mytube.com/watch?v=iEPTlhBmwRg"
+	ageRestrictedURL           = "https://www.youtube.com/watch?v=6LZM3_wp2ps&has_verified=1"
+	ageRestrictedEmbedURL      = "https://www.youtube.com/embed/6LZM3_wp2ps"
+	jsURL                      = "https://youtube.com/yts/jsbin/player-vfllqtOs7/ja_JP/base.js"
+	ageRestrictedJsURL         = "https://youtube.com/yts/jsbin/player-vflX7BSrP/ja_JP/base.js"
+	title                      = "Maroon 5 - Moves Like Jagger ft. Christina Aguilera"
+	ageRestrictedTitle         = "Watch_Dogs: Open World Gameplay Premiere Commented [North America]"
+	ageRestrictedVideoInfoURL  = "https://youtube.com/get_video_info?video_id=6LZM3_wp2ps&eurl=https%3A%2F%2Fyoutube.googleapis.com%2Fv%2F6LZM3_wp2ps&sts=17632"
+	streamNumbers              = 22
+	ageRestrictedStreamNumbers = 13
 )
 
 type fakeClient struct {
@@ -47,7 +52,7 @@ func TestFetchStreamManifests(t *testing.T) {
 
 	gomock.InOrder(
 		c.EXPECT().Get(validURL).Return(getMockPage()),
-		c.EXPECT().Get(jsURL).Return(getMockScript()),
+		c.EXPECT().Get(jsURL).Return(getContent(mockScriptPath)),
 	)
 
 	downloader := YoutubeDownloader{
@@ -59,8 +64,29 @@ func TestFetchStreamManifests(t *testing.T) {
 	if errFetch != nil {
 		t.Errorf("error while fetching stream manifests, %s", errFetch)
 	}
-	if len(streams) != streamNumbers {
-		t.Errorf("got %d streams, %d expected", len(streams), streamNumbers)
+
+	// check title
+	if downloader.title != title {
+		t.Errorf("wrong title, exepected %s, got %s", title, downloader.title)
+	}
+
+	// check streams
+	if len(downloader.Streams) != len(videoStreams) {
+		t.Errorf("got %d streams, %d expected", len(streams), len(videoStreams))
+	} else {
+		sort.Slice(
+			downloader.Streams,
+			func(i, j int) bool { return downloader.Streams[i].itag < downloader.Streams[j].itag },
+		)
+		sort.Slice(
+			videoStreams,
+			func(i, j int) bool { return videoStreams[i].itag < videoStreams[j].itag },
+		)
+		for i, s := range downloader.Streams {
+			if !s.equal(videoStreams[i]) {
+				t.Errorf("\n%v\nis different from\n%v\n", *s, *videoStreams[i])
+			}
+		}
 	}
 }
 
@@ -70,10 +96,10 @@ func TestFetchStreamManifestsForAgeRestricted(t *testing.T) {
 	c := mock.NewMockclient(ctrl)
 
 	gomock.InOrder(
-		c.EXPECT().Get(ageRestrictedURL).Return(getMockAgeRestrictedPage()),
+		c.EXPECT().Get(ageRestrictedURL).Return(getContent(mockAgeRestrictedPagePath)),
 		c.EXPECT().Get(ageRestrictedEmbedURL).Return(getContent(mockAgeRestrictedEmbedPagePath)),
 		c.EXPECT().Get(ageRestrictedVideoInfoURL).Return(getContent(mockAgeRestrictedVideoInfoPath)),
-		c.EXPECT().Get(ageRestrictedJsURL).Return(getMockAgeRestrictedScript()),
+		c.EXPECT().Get(ageRestrictedJsURL).Return(getContent(mockAgeRestrictedScriptPath)),
 	)
 
 	downloader := YoutubeDownloader{
@@ -85,9 +111,31 @@ func TestFetchStreamManifestsForAgeRestricted(t *testing.T) {
 	if errFetch != nil {
 		t.Errorf("error while fetching stream manifests, %s", errFetch)
 	}
-	if len(streams) != restrictedStreamNumbers {
-		t.Errorf("got %d streams, %d expected", len(streams), restrictedStreamNumbers)
+
+	// check title
+	if downloader.title != ageRestrictedTitle {
+		t.Errorf("wrong title, exepected %s, got %s", ageRestrictedTitle, downloader.title)
 	}
+
+	// check streams
+	if len(downloader.Streams) != len(restrictedVideoStreams) {
+		t.Errorf("got %d streams, %d expected", len(streams), len(restrictedVideoStreams))
+	} else {
+		sort.Slice(
+			downloader.Streams,
+			func(i, j int) bool { return downloader.Streams[i].itag < downloader.Streams[j].itag },
+		)
+		sort.Slice(
+			restrictedVideoStreams,
+			func(i, j int) bool { return restrictedVideoStreams[i].itag < restrictedVideoStreams[j].itag },
+		)
+		for i, s := range downloader.Streams {
+			if !s.equal(restrictedVideoStreams[i]) {
+				t.Errorf("\n%v\nis different from\n%v\n", *s, *restrictedVideoStreams[i])
+			}
+		}
+	}
+
 }
 
 func TestExtractInfo(t *testing.T) {
@@ -133,49 +181,6 @@ func TestExtractInfo(t *testing.T) {
 	// 	t.Error("wrong raw streams")
 	// }
 }
-func TestExtractInfoAgeRestricted(t *testing.T) {
-	html, err := readCompressedFile(mockAgeRestrictedEmbedPagePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	extractData, err := extractInfo(html, true)
-	if err != nil {
-		t.Errorf("extract video information failed, %s", err)
-	}
-
-	// jsURL
-	if extractedJsURL, ok := extractData["jsURL"]; !ok {
-		t.Error("failed to extract jsURL")
-	} else if extractedJsURL != ageRestrictedJsURL {
-		t.Errorf("wrong js url, got %s, expected %s", extractedJsURL, jsURL)
-	}
-
-	// title
-	if extractedTitle, ok := extractData["title"]; !ok {
-		t.Error("failed to extract title")
-	} else if extractedTitle != ageRestrictedTitle {
-		t.Errorf("wrong title, got %s, expected %s", extractedTitle, title)
-	}
-
-	// ToDo(matthewlujp): move to TestFetch...AgeRestricted
-	// // streams
-	// rawURLStream, errURLStream := getStrStream(rawAgeRestrictedURLEncodedStreamPath)
-	// // log.Printf("url: %s\n", rawURLStream)
-	// if errURLStream != nil {
-	// 	t.Fatal(errURLStream)
-	// }
-	// rawAdaptiveStream, errAdaptiveStream := getStrStream(rawAgeRestrictedAdaptiveStreamPath)
-	// // log.Printf("adaptive: %s\n", rawAdaptiveStream)
-	// if errAdaptiveStream != nil {
-	// 	t.Fatal(errAdaptiveStream)
-	// }
-	// if extractedRawStreams, ok := extractData["streams"]; !ok {
-	// 	t.Error("failed to extract streams")
-	// } else if extractedRawStreams != fmt.Sprintf("%s,%s", rawURLStream, rawAdaptiveStream) && extractedRawStreams != fmt.Sprintf("%s,%s", rawAdaptiveStream, rawURLStream) {
-	// 	t.Error("wrong raw streams")
-	// }
-}
 
 func TestInflateStringStream(t *testing.T) {
 	// case 1 (for noramal video)
@@ -186,7 +191,7 @@ func TestInflateStringStream(t *testing.T) {
 		"s":       "55B2F7214E041D71337613EA784BC0797F6064EE.6497710E7951322E10ACCD773A9DA4B7A492B6E77",
 		"sp":      "signature",
 		"type":    "video/mp4; codecs=\"avc1.64001F, mp4a.40.2\"",
-		"url":     "https://r1---sn-ogul7n7s.googlevideo.com/videoplayback?dur=278.778&pl=17&itag=22&key=yt6&ip=126.2.187.172&ms=au%2Conr&source=youtube&mv=m&id=o-AIMLylRYsEhoQdkeKYgwTOxaBWNe5BVIMqnuOI5fUZyR&expire=1521061926&mm=31%2C26&mn=sn-ogul7n7s%2Csn-3pm7snez&mime=video%2Fmp4&lmt=1518448989107051&ratebypass=yes&ei=xjupWtr7NIifqQG8vp_gBA&fvip=1&c=WEB&mt=1521040211&ipbits=0&requiressl=yes&sparams=dur%2Cei%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Clmt%2Cmime%2Cmm%2Cmn%2Cms%2Cmv%2Cpl%2Cratebypass%2Crequiressl%2Csource%2Cexpire&initcwndbps=772500",
+		"url":     "https://r1---sn-ogul7n7s.googlevideo.com/videoplayback?dur=278.778&pl=17&itag=22&key=yt6&ip=126.2.187.172&ms=au,onr&source=youtube&mv=m&id=o-AIMLylRYsEhoQdkeKYgwTOxaBWNe5BVIMqnuOI5fUZyR&expire=1521061926&mm=31,26&mn=sn-ogul7n7s,sn-3pm7snez&mime=video/mp4&lmt=1518448989107051&ratebypass=yes&ei=xjupWtr7NIifqQG8vp_gBA&fvip=1&c=WEB&mt=1521040211&ipbits=0&requiressl=yes&sparams=dur,ei,id,initcwndbps,ip,ipbits,itag,lmt,mime,mm,mn,ms,mv,pl,ratebypass,requiressl,source,expire&initcwndbps=772500",
 	}
 	if stream, err := inflateStringStream(rawStream); err != nil {
 		t.Error("failed to inflate raw stream", err)
@@ -196,7 +201,7 @@ func TestInflateStringStream(t *testing.T) {
 			if val, ok := stream[k]; !ok {
 				t.Errorf("%s not in inflated map", k)
 			} else if val != v {
-				t.Errorf("%s in stream %s, while in expected %s", k, val, v)
+				t.Errorf("%s in stream\n%s, \n%s", k, val, v)
 			}
 		}
 	}
@@ -207,7 +212,7 @@ func TestInflateStringStream(t *testing.T) {
 		"itag":    "22",
 		"quality": "hd720",
 		"type":    "video/mp4; codecs=\"avc1.64001F, mp4a.40.2\"",
-		"url":     "https://r1---sn-3pm7sn7r.googlevideo.com/videoplayback?mt=1523922201&mm=31%2C29&itag=22&requiressl=yes&ipbits=0&ei=dTXVWoC1GNPWqAHZ2JOgCg&sparams=dur%2Cei%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Clmt%2Cmime%2Cmm%2Cmn%2Cms%2Cmv%2Cpl%2Cratebypass%2Crequiressl%2Csource%2Cexpire&dur=282.192&ratebypass=yes&pl=17&fvip=5&ms=au%2Crdu&source=youtube&mv=m&beids=%5B9466593%5D&ip=126.225.83.8&key=yt6&lmt=1507668791912906&c=WEB&initcwndbps=802500&id=o-AB3avPHYxCHm1GOOiFZiFYPmAKUF-Vr1fUP6xCxawj_X&mime=video%2Fmp4&signature=7C4CF38F629A9E79B784B7F0C5763BBE9EE7E6AB.DC7917FB4F2A270FA8B4FB075F94857ED11B310C&expire=1523943893&mn=sn-3pm7sn7r%2Csn-3pm76n7s",
+		"url":     "https://r1---sn-3pm7sn7r.googlevideo.com/videoplayback?mt=1523922201&mm=31,29&itag=22&requiressl=yes&ipbits=0&ei=dTXVWoC1GNPWqAHZ2JOgCg&sparams=dur,ei,id,initcwndbps,ip,ipbits,itag,lmt,mime,mm,mn,ms,mv,pl,ratebypass,requiressl,source,expire&dur=282.192&ratebypass=yes&pl=17&fvip=5&ms=au,rdu&source=youtube&mv=m&beids=[9466593]&ip=126.225.83.8&key=yt6&lmt=1507668791912906&c=WEB&initcwndbps=802500&id=o-AB3avPHYxCHm1GOOiFZiFYPmAKUF-Vr1fUP6xCxawj_X&mime=video/mp4&signature=7C4CF38F629A9E79B784B7F0C5763BBE9EE7E6AB.DC7917FB4F2A270FA8B4FB075F94857ED11B310C&expire=1523943893&mn=sn-3pm7sn7r,sn-3pm76n7s",
 	}
 	if stream, err := inflateStringStream(rawStream); err != nil {
 		t.Error("failed to inflate raw stream", err)

@@ -47,14 +47,14 @@ func NewDownloader(url string) (*YoutubeDownloader, error) {
 
 // FetchStreamManifests build Stream instances based on information collected
 // By using one of obtained Stream instances, video can be downloaded.
-func (p *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
-	res, errGet := p.client.Get(p.url)
+func (dl *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
+	res, errGet := dl.client.Get(dl.url)
 	if errGet != nil {
-		return nil, fmt.Errorf("request to %s failed, %s", p.url, errGet)
+		return nil, fmt.Errorf("request to %s failed, %s", dl.url, errGet)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request to %s got status %s", p.url, res.Status)
+		return nil, fmt.Errorf("request to %s got status %s", dl.url, res.Status)
 	}
 
 	buf := new(bytes.Buffer)
@@ -65,7 +65,7 @@ func (p *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
 
 	var videoData map[string]string
 	if restricted := isAgeRestricted(html); restricted {
-		resEmb, errGetEmb := p.client.Get("https://www.youtube.com/embed/6LZM3_wp2ps")
+		resEmb, errGetEmb := dl.client.Get("https://www.youtube.com/embed/6LZM3_wp2ps")
 		if errGetEmb != nil {
 			return nil, fmt.Errorf("request for embed html failed, %s", errGetEmb)
 		}
@@ -82,8 +82,8 @@ func (p *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
 			videoData = data
 		}
 
-		videoInfoURL := extractVideoInfoURL(embedHTML, p.url)
-		resVideoInfo, errGetVideoInfo := p.client.Get(videoInfoURL)
+		videoInfoURL := extractVideoInfoURL(embedHTML, dl.url)
+		resVideoInfo, errGetVideoInfo := dl.client.Get(videoInfoURL)
 		if errGetVideoInfo != nil {
 			return nil, fmt.Errorf("request for video info failed, %s", errGetVideoInfo)
 		}
@@ -114,7 +114,7 @@ func (p *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
 	}
 
 	// download js script for signature decipher
-	resJs, errGetJs := p.client.Get(videoData["jsURL"])
+	resJs, errGetJs := dl.client.Get(videoData["jsURL"])
 	var d *youtubeDecipherer
 	if errGetJs != nil {
 		// do not exit because stream urls may include deciphered signature from the first place
@@ -136,25 +136,27 @@ func (p *YoutubeDownloader) FetchStreamManifests() ([]*Stream, error) {
 	}
 
 	stringStreams := strings.Split(videoData["streams"], ",")
-	p.Streams = make([]*Stream, 0, len(stringStreams))
+	dl.Streams = make([]*Stream, 0, len(stringStreams))
 	for _, ss := range stringStreams {
 		streamInfo, errInflate := inflateStringStream(ss)
 		if errInflate != nil {
 			logger.printf("%s", errInflate)
 			continue
 		}
-		stream, errBuildStream := newStream(streamInfo, p.client, d)
+		stream, errBuildStream := newStream(streamInfo, dl.client, d)
 		if errBuildStream != nil {
 			logger.printf("%s", errBuildStream)
 			continue
 		}
-		p.Streams = append(p.Streams, stream)
+		dl.Streams = append(dl.Streams, stream)
 	}
 
-	if len(p.Streams) < 1 {
-		return p.Streams, errors.New("no stream is obtained")
+	dl.title = videoData["title"]
+
+	if len(dl.Streams) < 1 {
+		return dl.Streams, errors.New("no stream is obtained")
 	}
-	return p.Streams, nil
+	return dl.Streams, nil
 }
 
 func isAgeRestricted(html []byte) bool {
@@ -228,6 +230,10 @@ func inflateStringStream(rawStream string) (map[string]string, error) {
 	for _, item := range items {
 		vals := strings.Split(item, "=")
 		unescaped, err := url.QueryUnescape(vals[1])
+		if err != nil {
+			return nil, err
+		}
+		unescaped, err = url.QueryUnescape(unescaped) // apply twice to eliminate %
 		if err != nil {
 			return nil, err
 		}

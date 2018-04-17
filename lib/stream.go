@@ -145,3 +145,20 @@ func (s *Stream) buildDownloadURL() (string, error) {
 	}
 	return fmt.Sprintf("%s&signature=%s", s.url, decipheredSignature), nil
 }
+
+func (s *Stream) equal(other *Stream) bool {
+	return s.itag == other.itag &&
+		s.Abr == other.Abr &&
+		s.Fps == other.Fps &&
+		s.Resolution == other.Resolution &&
+		s.MediaType == other.MediaType &&
+		s.Quality == other.Quality &&
+		s.Format == other.Format &&
+		s.VideoCodec == other.VideoCodec &&
+		s.AudioCodec == other.AudioCodec &&
+		s.Is3D == other.Is3D &&
+		s.IsLive == other.IsLive &&
+		s.signature == other.signature &&
+		s.url == other.url
+
+}
