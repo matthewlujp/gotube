@@ -16,10 +16,17 @@ import (
 )
 
 const (
-	mockPagePath            = "./mocks/data/page.html.zip"
-	mockScriptPath          = "./mocks/data/script.js.zip"
-	rawURLEncodedStreamPath = "./mocks/data/raw_url_streams.txt"
-	rawAdaptiveStreamPath   = "./mocks/data/raw_adaptive_streams.txt"
+	mockPagePath                         = "./mocks/data/page.html.zip"
+	mockAgeRestrictedPagePath            = "./mocks/data/age_restricted_page.html.zip"
+	mockAgeRestrictedEmbedPagePath       = "./mocks/data/age_restricted_embed_page.html.zip"
+	mockAgeRestrictedVideoInfoPath       = "./mocks/data/age_restricted_video_info.txt.zip"
+	mockScriptPath                       = "./mocks/data/script.js.zip"
+	mockAgeRestrictedScriptPath          = "./mocks/data/age_restricted_script.js.zip"
+	rawURLEncodedStreamPath              = "./mocks/data/raw_url_streams.txt"
+	rawAdaptiveStreamPath                = "./mocks/data/raw_adaptive_streams.txt"
+	rawAgeRestrictedURLEncodedStreamPath = "./mocks/data/raw_age_restricted_url_streams.txt"
+	rawAgeRestrictedAdaptiveStreamPath   = "./mocks/data/raw_age_restricted_adaptive_streams.txt"
+	restrictedStreamNumbers              = 13
 )
 
 type StreamType int
@@ -30,8 +37,6 @@ const (
 )
 
 var (
-	validURL                = "https://www.youtube.com/watch?v=iEPTlhBmwRg"
-	dummyURL                = "https://www.mytube.com/watch?v=iEPTlhBmwRg"
 	compressedFileNameRegex = regexp.MustCompile(`(.+).zip$`)
 	jsURL                   = "https://youtube.com/yts/jsbin/player-vfllqtOs7/ja_JP/base.js"
 	title                   = "Maroon 5 - Moves Like Jagger ft. Christina Aguilera"
@@ -112,21 +117,19 @@ func getMockPage() (*http.Response, error) {
 	return getContent(mockPagePath)
 }
 
+func getMockAgeRestrictedPage() (*http.Response, error) {
+	return getContent(mockAgeRestrictedPagePath)
+}
+
 func getMockScript() (*http.Response, error) {
 	return getContent(mockScriptPath)
 }
 
-func getStrStream(st StreamType) (string, error) {
-	var streamPath string
-	switch st {
-	case URLEncoded:
-		streamPath = rawURLEncodedStreamPath
-	case Adaptive:
-		streamPath = rawAdaptiveStreamPath
-	default:
-		panic("got invalid type specification")
-	}
+func getMockAgeRestrictedScript() (*http.Response, error) {
+	return getContent(mockAgeRestrictedScriptPath)
+}
 
+func getStrStream(streamPath string) (string, error) {
 	f, err := os.Open(streamPath)
 	if err != nil {
 		return "", err
