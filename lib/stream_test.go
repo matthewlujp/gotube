@@ -78,19 +78,12 @@ func TestDownload(t *testing.T) {
 		),
 	)
 
-	r, errDownload := stream.Download()
+	data, errDownload := stream.Download()
 	if errDownload != nil {
 		t.Fatalf("stream donwload failed, %s", errDownload)
 	}
-	defer r.Close()
-	buf := new(bytes.Buffer)
-	_, errRead := buf.ReadFrom(r)
-	if errRead != nil {
-		t.Fatalf("reading stream from reader failed, %s", errRead)
-	}
-	readContent := buf.Bytes()
-	if bytes.Compare(readContent, content) != 0 {
-		t.Errorf("got stream data %v, expected %v", readContent, content)
+	if bytes.Compare(data, content) != 0 {
+		t.Errorf("got stream data %v, expected %v", data, content)
 	}
 }
 

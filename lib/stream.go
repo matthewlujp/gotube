@@ -1,9 +1,9 @@
 package gotube
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -33,7 +33,7 @@ type Stream struct {
 }
 
 // Download returns a reader for downloaded video stream
-func (s *Stream) Download() (io.ReadCloser, error) {
+func (s *Stream) Download() ([]byte, error) {
 	downloadURL, errURLBuild := s.buildDownloadURL()
 	if errURLBuild != nil {
 		return nil, errURLBuild
@@ -42,18 +42,18 @@ func (s *Stream) Download() (io.ReadCloser, error) {
 
 	res, err := s.client.Get(downloadURL)
 	if err != nil {
-		logger.printf("download %s failed, %s", downloadURL, err)
 		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download %s got status %d", downloadURL, res.StatusCode)
 	}
 
-	if res.StatusCode != http.StatusOK {
-		res.Body.Close()
-		err = fmt.Errorf("download %s got status %d", downloadURL, res.StatusCode)
-		logger.printf("%s", err)
-		return nil, err
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(res.Body); err != nil {
+		return nil, fmt.Errorf("error while reading video content, %s", err)
 	}
-	logger.print("download completed")
-	return res.Body, nil
+	return buf.Bytes(), nil
 }
 
 func (s *Stream) String() string {

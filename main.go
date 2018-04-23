@@ -3,34 +3,101 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
+	"log"
 	"os"
 
 	gotube "github.com/matthewlujp/gotube/lib"
+	"github.com/pkg/profile"
 )
 
-func main() {
-	var saveFilePath string
+var (
+	saveFilePath *string
+	url          string
+	cpuProfile   *bool
+)
 
+func init() {
 	usageText := "Usage: gotube [Youtube video url] [file path to save a downloaded video]"
-	flag.StringVar(&saveFilePath, "s", "", "save file path")
+	saveFilePath = flag.String("s", "", "save file path")
+	cpuProfile = flag.Bool("p", false, "write cpu profile to a file under /var")
 	flag.Parse()
-	if flag.NArg() < 1 {
-		fmt.Println(usageText)
-		os.Exit(-1)
-	}
-	url := flag.Arg(0)
 
+	if !*cpuProfile && flag.NArg() < 1 {
+		log.Fatalln(usageText)
+	}
+	url = flag.Arg(0)
+}
+
+func main() {
+	if *cpuProfile {
+		runProfile()
+	} else {
+		run()
+	}
+}
+
+func runProfile() {
+	// code for cpu profiling
+	fmt.Println("cpu profile")
+	defer profile.Start().Stop()
+
+	streams, errFetch := getStreams("https://www.youtube.com/watch?v=09R8_2nJtjg")
+	if errFetch != nil {
+		log.Fatalln(errFetch)
+	}
+	data, errDownload := streams[19].Download()
+	if errDownload != nil {
+		log.Fatalln(errDownload)
+	}
+	if err := save("test.mp4", data); err != nil {
+		log.Fatalln(err)
+	}
+}
+
+func run() {
+	// code for command line usage
+	streams, err := getStreams(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+	streamID := printStreamsAndPrompt(streams) // make user choose a stream
+
+	// download a designated stream
+	stream := streams[streamID]
+	fmt.Printf("Downloading %d th stream, %s ......", streamID, stream)
+	data, errDownload := stream.Download()
+	if errDownload != nil {
+		log.Fatalf("failed to download stream %s, %s", stream, errDownload)
+	}
+	fmt.Println("Downloaded")
+
+	// make user to input save file path if not designated as a commandline flag
+	if *saveFilePath == "" {
+		fmt.Print("Where to save the video?> ")
+		fmt.Scan(saveFilePath)
+	}
+	fmt.Printf("Saving on %s......", *saveFilePath)
+
+	if err := save(*saveFilePath, data); err != nil {
+		log.Fatalln(err)
+	}
+	fmt.Printf("Download completed!\nWritten on %s.\nBitrate %s, FPS %s, Resolution %s\n", *saveFilePath, stream.Abr, stream.Fps, stream.Resolution)
+}
+
+func getStreams(url string) ([]*gotube.Stream, error) {
 	downloader, errNewPlayer := gotube.NewDownloader(url)
 	if errNewPlayer != nil {
-		panic(errNewPlayer)
+		return nil, errNewPlayer
 	}
 	if err := downloader.FetchStreams(); err != nil {
-		panic(err)
+		return nil, err
 	}
+	return downloader.Streams, nil
+}
 
+func printStreamsAndPrompt(streams []*gotube.Stream) int {
 	fmt.Println("Fetched streams:\nID    Stream info")
-	for i, s := range downloader.Streams {
+	for i, s := range streams {
 		fmt.Printf("%d --- %s\n", i, s)
 	}
 
@@ -38,31 +105,16 @@ func main() {
 	var streamID int
 	fmt.Scan(&streamID)
 	fmt.Println("")
+	return streamID
+}
 
-	// download a designated stream
-	stream := downloader.Streams[streamID]
-	fmt.Printf("Downloading %d th stream, %s ......", streamID, stream)
-	dataReader, errDownload := stream.Download()
-	if errDownload != nil {
-		fmt.Printf("failed to download stream %s, %s", stream, errDownload)
-		os.Exit(-1)
-	}
-	defer dataReader.Close()
-	fmt.Println("Downloaded")
-
-	if saveFilePath == "" {
-		fmt.Print("Where to save the video?> ")
-		fmt.Scan(&saveFilePath)
-	}
-	fmt.Printf("Saving on %s......", saveFilePath)
-	f, errOpen := os.Create(saveFilePath)
+func save(path string, data []byte) error {
+	f, errOpen := os.Create(path)
 	if errOpen != nil {
-		fmt.Printf("Failed to create or open %s, %s\n", saveFilePath, errOpen)
-		os.Exit(-1)
+		return fmt.Errorf("failed to create or open %s, %s", path, errOpen)
 	}
-	if _, err := io.Copy(f, dataReader); err != nil {
-		fmt.Printf("Error while writing the downloader video to the file, %s", err)
-		os.Exit(-1)
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("error while writing the downloader video to the file, %s", err)
 	}
-	fmt.Printf("Download completed!\nWritten on %s.\nBitrate %s, FPS %s, Resolution %s\n", saveFilePath, stream.Abr, stream.Fps, stream.Resolution)
+	return nil
 }

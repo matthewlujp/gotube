@@ -41,23 +41,6 @@ func NewDownloader(url string) (*YoutubeDownloader, error) {
 	return nil, fmt.Errorf("unexpected URL format %s", url)
 }
 
-func (dl *YoutubeDownloader) getResource(url string) ([]byte, error) {
-	res, errGet := dl.client.Get(url)
-	if errGet != nil {
-		return nil, fmt.Errorf("request to %s failed, %s", dl.url, errGet)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request to %s got status %s", dl.url, res.Status)
-	}
-
-	buf := new(bytes.Buffer)
-	if _, err := buf.ReadFrom(res.Body); err != nil {
-		return nil, fmt.Errorf("read html failed, %s", err)
-	}
-	return buf.Bytes(), nil
-}
-
 // FetchStreams build Stream instances based on information collected
 // By using one of obtained Stream instances, video can be downloaded.
 func (dl *YoutubeDownloader) FetchStreams() error {
@@ -93,25 +76,21 @@ func (dl *YoutubeDownloader) FetchStreams() error {
 	return nil
 }
 
-func (dl *YoutubeDownloader) extractVideoID() (string, error) {
-	res := videoIDRegex.FindStringSubmatch(dl.url)
-	if res == nil {
-		return "", fmt.Errorf("no id found in %s", dl.url)
+func (dl *YoutubeDownloader) getResource(url string) ([]byte, error) {
+	res, errGet := dl.client.Get(url)
+	if errGet != nil {
+		return nil, fmt.Errorf("request to %s failed, %s", dl.url, errGet)
 	}
-	return res[1], nil
-}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request to %s got status %s", dl.url, res.Status)
+	}
 
-func (dl *YoutubeDownloader) getAuxiliaryInfo(embedHTML []byte, videoID string) ([]byte, error) {
-	sts := stsRegex.FindSubmatch(embedHTML)
-	if len(sts) < 2 {
-		return nil, errors.New("failed to obtain sts for video info url")
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(res.Body); err != nil {
+		return nil, fmt.Errorf("read html failed, %s", err)
 	}
-	videoInfoURL := auxiliaryInfoURL(videoID, string(sts[1][:]))
-	videoInfo, err := dl.getResource(videoInfoURL)
-	if err != nil {
-		return nil, err
-	}
-	return videoInfo, nil
+	return buf.Bytes(), nil
 }
 
 func (dl *YoutubeDownloader) extractData() (map[string]string, error) {
@@ -152,6 +131,27 @@ func (dl *YoutubeDownloader) extractData() (map[string]string, error) {
 	}
 	videoData["streams"] = strings.Join(streams, ",")
 	return videoData, nil
+}
+
+func (dl *YoutubeDownloader) extractVideoID() (string, error) {
+	res := videoIDRegex.FindStringSubmatch(dl.url)
+	if res == nil {
+		return "", fmt.Errorf("no id found in %s", dl.url)
+	}
+	return res[1], nil
+}
+
+func (dl *YoutubeDownloader) getAuxiliaryInfo(embedHTML []byte, videoID string) ([]byte, error) {
+	sts := stsRegex.FindSubmatch(embedHTML)
+	if len(sts) < 2 {
+		return nil, errors.New("failed to obtain sts for video info url")
+	}
+	videoInfoURL := auxiliaryInfoURL(videoID, string(sts[1][:]))
+	videoInfo, err := dl.getResource(videoInfoURL)
+	if err != nil {
+		return nil, err
+	}
+	return videoInfo, nil
 }
 
 func embedURL(videoID string) string {
