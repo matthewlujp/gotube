@@ -45,7 +45,8 @@ func runProfile() {
 	if errFetch != nil {
 		log.Fatalln(errFetch)
 	}
-	data, errDownload := streams[19].Download()
+	// data, errDownload := streams[19].Download()
+	data, errDownload := streams[19].ParallelDownload()
 	if errDownload != nil {
 		log.Fatalln(errDownload)
 	}
@@ -65,7 +66,8 @@ func run() {
 	// download a designated stream
 	stream := streams[streamID]
 	fmt.Printf("Downloading %d th stream, %s ......", streamID, stream)
-	data, errDownload := stream.Download()
+	// data, errDownload := stream.Download()
+	data, errDownload := stream.ParallelDownload()
 	if errDownload != nil {
 		log.Fatalf("failed to download stream %s, %s", stream, errDownload)
 	}

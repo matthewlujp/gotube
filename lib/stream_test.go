@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -84,6 +85,75 @@ func TestDownload(t *testing.T) {
 	}
 	if bytes.Compare(data, content) != 0 {
 		t.Errorf("got stream data %v, expected %v", data, content)
+	}
+}
+
+// func TestParallelDownload(t *testing.T) {
+// 	ctrl := gomock.NewController(t)
+// 	defer ctrl.Finish()
+// 	c := mock.NewMockclient(ctrl)
+// 	d := mock.NewMockdecipherer(ctrl)
+
+// 	stream := Stream{
+// 		signature:  "hoge",
+// 		url:        "https://foobar?itag=22",
+// 		client:     c,
+// 		decipherer: d,
+// 	}
+
+// 	content := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C}
+// 	gomock.InOrder(
+// 		d.EXPECT().Decipher("hoge").Return("geho", nil),
+// 		c.EXPECT().Get("https://foobar?itag=22&signature=geho").Return(
+// 			&http.Response{
+// 				StatusCode: 200,
+// 				Body:       ioutil.NopCloser(bytes.NewReader(content)),
+// 			},
+// 			nil,
+// 		),
+// 	)
+
+// 	data, errDownload := stream.ParallelDownload()
+// 	if errDownload != nil {
+// 		t.Fatalf("stream donwload failed, %s", errDownload)
+// 	}
+// 	if bytes.Compare(data, content) != 0 {
+// 		t.Errorf("got stream data %v, expected %v", data, content)
+// 	}
+// }
+
+func TestGetSize(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	c := mock.NewMockclient(ctrl)
+	d := mock.NewMockdecipherer(ctrl)
+
+	stream := Stream{
+		signature:  "hoge",
+		url:        "https://foobar?itag=22",
+		client:     c,
+		decipherer: d,
+	}
+	expected := 50970333
+	header := make(http.Header)
+	header.Set("Content-Length", strconv.Itoa(expected))
+
+	gomock.InOrder(
+		d.EXPECT().Decipher("hoge").Return("geho", nil),
+		c.EXPECT().Head("https://foobar?itag=22&signature=geho").Return(
+			&http.Response{
+				StatusCode: 200,
+				Header:     header,
+				Body:       nil,
+			},
+			nil,
+		),
+	)
+
+	if size, err := stream.GetSize(); err != nil {
+		t.Fatalf("get stream size failed, %s", err)
+	} else if size != expected {
+		t.Errorf("stream size expected %d, got %d", expected, size)
 	}
 }
 

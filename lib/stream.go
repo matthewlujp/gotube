@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -28,30 +32,82 @@ type Stream struct {
 	IsLive     bool
 	signature  string
 	url        string
+	duration   time.Duration
 	client     client
 	decipherer decipherer
 }
 
-// Download returns a reader for downloaded video stream
+// Download returns a byte slice of video content
 func (s *Stream) Download() ([]byte, error) {
 	downloadURL, errURLBuild := s.buildDownloadURL()
 	if errURLBuild != nil {
 		return nil, errURLBuild
 	}
 	logger.printf("download url prepared: %s", downloadURL)
+	return s.download(downloadURL)
+}
 
-	res, err := s.client.Get(downloadURL)
-	if err != nil {
+// ParallelDownload returns a byte slice of video content
+// It conducts download in parallel
+func (s *Stream) ParallelDownload() ([]byte, error) {
+	size, errSize := s.GetSize()
+	if errSize != nil {
+		return nil, errSize
+	}
+	chunkSize := s.chunkSizeForSecondsFetch(size, time.Second*20) // chunkSize of 20 seconds
+	ranges := make([]int, 0, size/chunkSize+1)                    // [0, 1*chunkSize, 2*chunkSize, ..., size], is used to designate start and end of a stream
+	for i := 0; i*chunkSize < size; i++ {
+		ranges = append(ranges, i*chunkSize)
+	}
+	ranges = append(ranges, size)
+	collectedData := make([][]byte, len(ranges)-1)
+
+	// decipher and get basic url
+	downloadURL, errURLBuild := s.buildDownloadURL()
+	if errURLBuild != nil {
+		return nil, errURLBuild
+	}
+	logger.printf("download url prepared: %s", downloadURL)
+
+	// parallel download
+	eg := errgroup.Group{}
+	for i := range ranges[:len(ranges)-1] {
+		idx := i
+		eg.Go(func() error {
+			data, err := s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
+			if err != nil {
+				return err
+			}
+			collectedData[idx] = data
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
 		return nil, err
+	}
+	logger.print("download completed")
+
+	// concatenate downloaded data
+	for _, data := range collectedData[1:] {
+		collectedData[0] = append(collectedData[0], data...)
+	}
+	return collectedData[0], nil
+}
+
+// download get resource and return byte slice
+func (s *Stream) download(url string) ([]byte, error) {
+	res, errGet := s.client.Get(url)
+	if errGet != nil {
+		return nil, errGet
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %s got status %d", downloadURL, res.StatusCode)
+		return nil, fmt.Errorf("get request to %s got status %s", url, res.Status)
 	}
 
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(res.Body); err != nil {
-		return nil, fmt.Errorf("error while reading video content, %s", err)
+		return nil, fmt.Errorf("failed to read content downloaded from %s, %s", url, err)
 	}
 	return buf.Bytes(), nil
 }
@@ -67,6 +123,47 @@ func (s *Stream) String() string {
 	return base + ">"
 }
 
+func (s *Stream) chunkSizeForSecondsFetch(dataSize int, fetchDuration time.Duration) int {
+	if s.duration == 0 {
+		return dataSize
+	}
+	return int(math.Ceil(float64(dataSize) / float64(s.duration) * float64(fetchDuration)))
+}
+
+// GetSize returns content size of this stream
+func (s *Stream) GetSize() (int, error) {
+	sURL, errURL := s.buildDownloadURL()
+	if errURL != nil {
+		return -1, errURL
+	}
+	res, err := s.client.Head(sURL)
+	if err != nil {
+		return -1, err
+	}
+	defer func() {
+		if res.Body != nil {
+			res.Body.Close()
+		}
+	}()
+
+	if res.Header.Get("Content-Length") == "" {
+		return -1, errors.New("GetSize failed, header does not contain Content-Length")
+	}
+	size, errConvert := strconv.Atoi(res.Header.Get("Content-Length"))
+	if errConvert != nil {
+		return -1, fmt.Errorf("GetSize failed, invalid size %s, %s", res.Header.Get("Content-Length"), errConvert)
+	}
+	return size, nil
+}
+
+// newStream returns a Stream instance
+// The first argument is a map[string]string whose keys and values  are
+// url:
+// s: signature
+// quality: hd720, medium, etc.
+// type: "video/mp4; codecs=\"avc1.64001F, mp4a.40.2\"", "audio/webm; codecs=\"opus\""
+// itag:
+// duration: video duration in seconds
 func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, error) {
 	s := Stream{}
 
@@ -78,16 +175,12 @@ func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, e
 
 	if v, ok := streamInfo["s"]; ok {
 		s.signature = v
-	} else {
-		logger.print("no signature found")
 	}
 
 	if v, ok := streamInfo["quality"]; ok {
 		s.Quality = v
 	} else if v, ok = streamInfo["quality_label"]; ok {
 		s.Quality = v
-	} else {
-		logger.print("no quality found")
 	}
 
 	if v, ok := streamInfo["type"]; ok {
@@ -111,8 +204,6 @@ func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, e
 				s.AudioCodec = codecs[1]
 			}
 		}
-	} else {
-		logger.print("no type found")
 	}
 
 	if v, ok := streamInfo["itag"]; ok {
@@ -132,8 +223,12 @@ func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, e
 			s.Is3D = fp.is3D
 			s.IsLive = fp.isLive
 		}
-	} else {
-		logger.print("no itag found")
+	}
+
+	if duration, ok := streamInfo["duration"]; ok {
+		if seconds, err := strconv.Atoi(duration); err == nil {
+			s.duration = time.Duration(seconds) * time.Second
+		}
 	}
 
 	s.client = c
@@ -170,6 +265,6 @@ func (s *Stream) equal(other *Stream) bool {
 		s.Is3D == other.Is3D &&
 		s.IsLive == other.IsLive &&
 		s.signature == other.signature &&
-		s.url == other.url
-
+		s.url == other.url &&
+		s.duration == other.duration
 }

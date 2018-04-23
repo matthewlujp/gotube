@@ -16,6 +16,8 @@ var (
 	jsURLRegex                     = regexp.MustCompile(`.\"js\":\"(.+?)\"`)
 	ageRestrictedJsURLRegex        = regexp.MustCompile(`;yt\.setConfig\(\{\'PLAYER_CONFIG\':\s*{.+?"js":"(.+?)"}.+?}(,\'EXPERIMENT_FLAGS\'|;)`)
 	titleRegex                     = regexp.MustCompile(`"title":"(.+?)","`)
+	durationRegex                  = regexp.MustCompile(`"length_seconds":"(.+?)","`)
+	ageRestrictedDurationRegex     = regexp.MustCompile(`length_seconds=([0-9]+?)&`)
 	adaptiveFmtsRegex              = regexp.MustCompile(`"adaptive_fmts":"(.+?)"`)
 	urlFmtsRegex                   = regexp.MustCompile(`"url_encoded_fmt_stream_map":"(.+?)"`)
 	ageRestrictedAdaptiveFmtsRegex = regexp.MustCompile(`adaptive_fmts=(.+?)&`)
@@ -51,10 +53,10 @@ func (dl *YoutubeDownloader) FetchStreams() error {
 	dl.title = videoData["title"]
 
 	// download js script and build a decipherer instance
-	var dcph decipherer
+	var deci decipherer
 	if js, err := dl.getResource(videoData["jsURL"]); err == nil {
 		if d, err := newDecipherer(js); err == nil {
-			dcph = d
+			deci = d
 		}
 	}
 
@@ -62,7 +64,7 @@ func (dl *YoutubeDownloader) FetchStreams() error {
 	stringStreams := strings.Split(videoData["streams"], ",")
 	dl.Streams = make([]*Stream, 0, len(stringStreams))
 	for _, ss := range stringStreams {
-		stream, errBuildStream := inflateStream(ss, dl.client, dcph)
+		stream, errBuildStream := inflateStream(ss, dl.client, deci, videoData)
 		if errBuildStream != nil {
 			logger.printf("%s", errBuildStream)
 			continue
@@ -110,21 +112,20 @@ func (dl *YoutubeDownloader) extractData() (map[string]string, error) {
 	var embedHTML []byte
 	var videoInfo []byte
 	if ageRestricted {
-		if html, err := dl.getResource(embedURL(videoID)); err != nil {
+		var err error
+		embedHTML, err = dl.getResource(embedURL(videoID))
+		if err != nil {
 			return nil, err
-		} else {
-			embedHTML = html
 		}
-
-		if info, err := dl.getAuxiliaryInfo(embedHTML, videoID); err != nil {
+		videoInfo, err = dl.getAuxiliaryInfo(embedHTML, videoID)
+		if err != nil {
 			return nil, err
-		} else {
-			videoInfo = info
 		}
 	}
 
 	videoData["title"] = extractTitle(html, embedHTML, ageRestricted)
 	videoData["jsURL"] = extractJsURL(html, embedHTML, ageRestricted)
+	videoData["duration"] = extractDuration(html, videoInfo, ageRestricted)
 	streams, errExtractStreams := extractStreams(html, videoInfo, ageRestricted)
 	if errExtractStreams != nil {
 		return nil, errExtractStreams
@@ -181,6 +182,20 @@ func extractTitle(html, embedHTML []byte, ageRestricted bool) string {
 	return string(title[1][:])
 }
 
+func extractDuration(html, videoInfo []byte, ageRestricted bool) string {
+	var duration [][]byte
+	if ageRestricted {
+		duration = ageRestrictedDurationRegex.FindSubmatch(videoInfo)
+	} else {
+		duration = durationRegex.FindSubmatch(html)
+	}
+	if duration == nil {
+		logger.print("no title is extracted\n")
+		return ""
+	}
+	return string(duration[1][:])
+}
+
 func extractJsURL(html, embedHTML []byte, ageRestricted bool) string {
 	var jsURL [][]byte
 	if ageRestricted {
@@ -224,7 +239,7 @@ func isAgeRestricted(html []byte) bool {
 	return strings.Contains(string(html[:]), "og:restrictions:age")
 }
 
-func inflateStream(rawStream string, c client, d decipherer) (*Stream, error) {
+func inflateStream(rawStream string, c client, d decipherer, auxiliaryInfo map[string]string) (*Stream, error) {
 	// split into key=val pairs
 	var items []string
 	if strings.Contains(rawStream, "\\u0026") {
@@ -246,6 +261,11 @@ func inflateStream(rawStream string, c client, d decipherer) (*Stream, error) {
 			return nil, err
 		}
 		values[vals[0]] = unescaped
+	}
+
+	// add auxiliaryInfo
+	for k, v := range auxiliaryInfo {
+		values[k] = v
 	}
 
 	if stream, err := newStream(values, c, d); err != nil {
