@@ -20,7 +20,8 @@ const (
 	ageRestrictedJsURL        = "https://youtube.com/yts/jsbin/player-vflX7BSrP/ja_JP/base.js"
 	ageRestrictedTitle        = "Watch_Dogs: Open World Gameplay Premiere Commented [North America]"
 	ageRestrictedVideoInfoURL = "https://youtube.com/get_video_info?video_id=6LZM3_wp2ps&eurl=https%3A%2F%2Fyoutube.googleapis.com%2Fv%2F6LZM3_wp2ps&sts=17632"
-	benchURL                  = "https://www.youtube.com/watch?v=g5xWqjFglsk"
+	benchURLVideo             = "https://www.youtube.com/watch?v=g5xWqjFglsk"
+	benchURLAudio             = "https://www.youtube.com/watch?v=09R8_2nJtjg"
 )
 
 type fakeClient struct {
@@ -174,30 +175,119 @@ func TestInflateStream(t *testing.T) {
 
 func BenchmarkDownload(b *testing.B) {
 	// measure one serial download
-	dl, errBuild := NewDownloader(benchURL)
-	if errBuild != nil {
-		b.Fatal(errBuild)
-	}
-	if err := dl.FetchStreams(); err != nil {
-		b.Fatal(err)
-	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		dl.Streams[17].Download()
-	}
+	logger.debug = false
+	b.Run("video_1min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLVideo)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[17].Download()
+		}
+	})
+
+	b.Run("audio_1min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLVideo)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[10].Download()
+		}
+	})
+
+	b.Run("video_5min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLAudio)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[19].Download()
+		}
+	})
+
+	b.Run("audio_5min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLAudio)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[12].Download()
+		}
+	})
 }
 func BenchmarkParallelDownload(b *testing.B) {
 	// measure one serial download
-	dl, errBuild := NewDownloader(benchURL)
-	if errBuild != nil {
-		b.Fatal(errBuild)
-	}
-	if err := dl.FetchStreams(); err != nil {
-		b.Fatal(err)
-	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		// dl.Streams[19].ParallelDownload()
-		dl.Streams[17].ParallelDownload()
-	}
+	logger.debug = false
+	b.Run("video_1min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLVideo)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[17].ParallelDownload()
+		}
+	})
+
+	b.Run("audio_1min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLVideo)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[10].ParallelDownload()
+		}
+	})
+
+	b.Run("video_5min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLAudio)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[19].ParallelDownload()
+		}
+	})
+
+	b.Run("audio_5min", func(b *testing.B) {
+		dl, errBuild := NewDownloader(benchURLAudio)
+		if errBuild != nil {
+			b.Fatal(errBuild)
+		}
+		if err := dl.FetchStreams(); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			dl.Streams[12].ParallelDownload()
+		}
+	})
 }
