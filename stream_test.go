@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	mock "github.com/matthewlujp/gotube/mocks"
@@ -88,39 +89,65 @@ func TestDownload(t *testing.T) {
 	}
 }
 
-// func TestParallelDownload(t *testing.T) {
-// 	ctrl := gomock.NewController(t)
-// 	defer ctrl.Finish()
-// 	c := mock.NewMockclient(ctrl)
-// 	d := mock.NewMockdecipherer(ctrl)
+func TestParallelDownload(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	c := mock.NewMockclient(ctrl)
+	d := mock.NewMockdecipherer(ctrl)
 
-// 	stream := Stream{
-// 		signature:  "hoge",
-// 		url:        "https://foobar?itag=22",
-// 		client:     c,
-// 		decipherer: d,
-// 	}
+	stream := Stream{
+		signature:  "hoge",
+		url:        "https://foobar?itag=22",
+		duration:   time.Second * time.Duration(20*7.5),
+		client:     c,
+		decipherer: d,
+	}
 
-// 	content := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C}
-// 	gomock.InOrder(
-// 		d.EXPECT().Decipher("hoge").Return("geho", nil),
-// 		c.EXPECT().Get("https://foobar?itag=22&signature=geho").Return(
-// 			&http.Response{
-// 				StatusCode: 200,
-// 				Body:       ioutil.NopCloser(bytes.NewReader(content)),
-// 			},
-// 			nil,
-// 		),
-// 	)
+	content := []byte{
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	// 13 bytes for 20 * 7.5 = 150 seconds
+	// Since one request is for 20 seconds, 8 requests are supposed to make.
+	// One request is floor(17 / 8) = 2 bytes
+	// In order to keep request chunk sie 20 seconds, additional request is conducted.
+	d.EXPECT().Decipher("hoge").Return("geho", nil)
+	header := make(http.Header)
+	header.Set("Content-Length", "17")
+	c.EXPECT().Head("https://foobar?itag=22&signature=geho").Return(
+		&http.Response{
+			Header:     header,
+			StatusCode: 200,
+		},
+		nil,
+	)
+	for d := 0; d < 8; {
+		requestURL := fmt.Sprintf("https://foobar?itag=22&signature=geho&range=%d-%d", 2*d, 2*d+1)
+		c.EXPECT().Get(requestURL).Return(
+			&http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(content[2*d : 2*d+2])),
+			},
+			nil,
+		)
+		d++
+	}
+	c.EXPECT().Get("https://foobar?itag=22&signature=geho&range=16-16").Return(
+		&http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(bytes.NewReader(content[16:17])),
+		},
+		nil,
+	)
 
-// 	data, errDownload := stream.ParallelDownload()
-// 	if errDownload != nil {
-// 		t.Fatalf("stream donwload failed, %s", errDownload)
-// 	}
-// 	if bytes.Compare(data, content) != 0 {
-// 		t.Errorf("got stream data %v, expected %v", data, content)
-// 	}
-// }
+	data, errDownload := stream.ParallelDownload()
+	if errDownload != nil {
+		t.Fatalf("stream donwload failed, %s", errDownload)
+	}
+	if bytes.Compare(data, content) != 0 {
+		t.Errorf("got stream data %v, expected %v", data, content)
+	}
+}
 
 func TestGetSize(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -167,51 +194,40 @@ func TestBuildDownloadURL(t *testing.T) {
 	d.EXPECT().Decipher(signature).Return(decipheredSignature, nil).Times(1)
 
 	streamURL := "https://youtube.com?foo=bar"
-	stream := Stream{
-		url: streamURL,
-	}
 
-	// signature and decipherer is missing (Decipher not called)
-	builtURL, errURLBuild := stream.buildDownloadURL()
-	if errURLBuild == nil {
-		t.Error("error should be raised when signature and decipherer are not given")
-	}
+	t.Run("signature and decipherer is missing", func(t *testing.T) {
+		// Decipher not called
+		stream := Stream{url: streamURL}
+		if _, err := stream.getDownloadURL(); err == nil {
+			t.Error("error should be raised when signature and decipherer are not given")
+		}
+	})
 
-	// signature is missing (Decipher not called)
-	stream.decipherer = d
-	builtURL, errURLBuild = stream.buildDownloadURL()
-	if errURLBuild == nil {
-		t.Error("error should be raised when signature is not given")
-	}
+	t.Run("both signature and decipherer are valid", func(t *testing.T) {
+		stream := Stream{
+			url:        streamURL,
+			signature:  signature,
+			decipherer: d,
+		}
+		expected := fmt.Sprintf("%s&signature=%s", streamURL, decipheredSignature)
+		if builtURL, err := stream.getDownloadURL(); err != nil {
+			t.Errorf("failed to build download url, %s", err)
+		} else if builtURL != expected {
+			t.Errorf("wrong donwload URL is built %s, expected %s", builtURL, expected)
+		}
+	})
 
-	// don't panic and raise error when decipherer is missin (Decipher not called)
-	stream.decipherer = nil
-	stream.signature = signature
-	builtURL, errURLBuild = stream.buildDownloadURL()
-	if errURLBuild == nil {
-		t.Error("error should be raised when decipherer is not given")
-	}
-
-	// sufficient data is given for signature decipher
-	stream.signature = signature
-	stream.decipherer = d
-	expected := fmt.Sprintf("%s&signature=%s", streamURL, decipheredSignature)
-	builtURL, errURLBuild = stream.buildDownloadURL()
-	if errURLBuild != nil {
-		t.Errorf("failed to build download url, %s", errURLBuild)
-	} else if builtURL != expected {
-		t.Errorf("wrong donwload URL is built %s, expected %s", builtURL, expected)
-	}
-
-	// no error when signature and decipherer are not given but deciphererd signature is included in url (Decipher not called)
-	stream.signature = ""
-	stream.url = builtURL
-	expected = builtURL
-	builtURL, errURLBuild = stream.buildDownloadURL()
-	if errURLBuild != nil {
-		t.Error("no error should be raised when deciphered signature is included in url")
-	} else if builtURL != expected {
-		t.Errorf("wrong donwload URL is built %s, expected %s", builtURL, expected)
-	}
+	t.Run("deciphererd signature has already been included in a url", func(t *testing.T) {
+		// Decipher not called
+		expected := fmt.Sprintf("%s&signature=%s", streamURL, decipheredSignature)
+		stream := Stream{
+			url: expected,
+		}
+		if builtURL, err := stream.getDownloadURL(); err != nil {
+			t.Error("no error should be raised when deciphered signature is included in url")
+		} else if builtURL != expected {
+			t.Errorf("wrong donwload URL is built %s, expected %s", builtURL, expected)
+		}
+	})
 
 }

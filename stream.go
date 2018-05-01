@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -19,27 +20,29 @@ var (
 )
 
 type Stream struct {
-	itag       int
-	Abr        string
-	Fps        string
-	Resolution string
-	MediaType  string // video, audio
-	Quality    string // hd720
-	Format     string // mp4
-	VideoCodec string
-	AudioCodec string
-	Is3D       bool
-	IsLive     bool
-	signature  string
-	url        string
-	duration   time.Duration
-	client     client
-	decipherer decipherer
+	itag         int
+	Abr          string
+	Fps          string
+	Resolution   string
+	MediaType    string // video, audio
+	Quality      string // hd720
+	Format       string // mp4
+	VideoCodec   string
+	AudioCodec   string
+	Is3D         bool
+	IsLive       bool
+	signature    string
+	url          string
+	downloadURL  string
+	buildURLOnce sync.Once
+	duration     time.Duration
+	client       client
+	decipherer   decipherer
 }
 
 // Download returns a byte slice of video content
 func (s *Stream) Download() ([]byte, error) {
-	downloadURL, errURLBuild := s.buildDownloadURL()
+	downloadURL, errURLBuild := s.getDownloadURL()
 	if errURLBuild != nil {
 		return nil, errURLBuild
 	}
@@ -49,21 +52,19 @@ func (s *Stream) Download() ([]byte, error) {
 
 // ParallelDownload returns a byte slice of video content
 // It conducts download in parallel
+// A video is separated every 20 seconds and they are requested in parallel
+// Bytes for 20 seconds are calculated based on video duration and the bytes length.
+// Bytes length are checked before the get request by sending head rewquest.
 func (s *Stream) ParallelDownload() ([]byte, error) {
-	size, errSize := s.GetSize()
-	if errSize != nil {
-		return nil, errSize
+	ranges, errRanges := s.byteRanges(time.Second * 20) // chunkSize of 20 seconds
+	if errRanges != nil {
+		return nil, errRanges
 	}
-	chunkSize := s.chunkSizeForSecondsFetch(size, time.Second*20) // chunkSize of 20 seconds
-	ranges := make([]int, 0, size/chunkSize+1)                    // [0, 1*chunkSize, 2*chunkSize, ..., size], is used to designate start and end of a stream
-	for i := 0; i*chunkSize < size; i++ {
-		ranges = append(ranges, i*chunkSize)
-	}
-	ranges = append(ranges, size)
+
 	collectedData := make([][]byte, len(ranges)-1)
 
 	// decipher and get basic url
-	downloadURL, errURLBuild := s.buildDownloadURL()
+	downloadURL, errURLBuild := s.getDownloadURL()
 	if errURLBuild != nil {
 		return nil, errURLBuild
 	}
@@ -78,6 +79,7 @@ func (s *Stream) ParallelDownload() ([]byte, error) {
 			if err != nil {
 				return err
 			}
+
 			collectedData[idx] = data
 			return nil
 		})
@@ -123,16 +125,35 @@ func (s *Stream) String() string {
 	return base + ">"
 }
 
-func (s *Stream) chunkSizeForSecondsFetch(dataSize int, fetchDuration time.Duration) int {
+// byteRanges returns a slice of indexes that split the video data evenly except for the last chunk.
+// One chunk is less or equivalent to a given duration.
+// [0, 1*chunkSize, 2*chunkSize, ..., size], is used to designate start and end of a stream
+func (s *Stream) byteRanges(duration time.Duration) ([]int, error) {
+	totalSize, err := s.GetSize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to split video data, %s", err)
+	}
+
+	chunkSize := s.bytesForDuration(totalSize, duration)
+	ranges := make([]int, 0, totalSize/chunkSize+1)
+	for i := 0; i*chunkSize < totalSize; i++ {
+		ranges = append(ranges, i*chunkSize)
+	}
+	ranges = append(ranges, totalSize)
+	return ranges, nil
+}
+
+// bytesForDuration estimates byte size for a given duration (seconds)
+func (s *Stream) bytesForDuration(dataSize int, fetchDuration time.Duration) int {
 	if s.duration == 0 {
 		return dataSize
 	}
-	return int(math.Ceil(float64(dataSize) / float64(s.duration) * float64(fetchDuration)))
+	return int(math.Floor(float64(dataSize) / float64(s.duration) * float64(fetchDuration)))
 }
 
 // GetSize returns content size of this stream
 func (s *Stream) GetSize() (int, error) {
-	sURL, errURL := s.buildDownloadURL()
+	sURL, errURL := s.getDownloadURL()
 	if errURL != nil {
 		return -1, errURL
 	}
@@ -236,20 +257,30 @@ func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, e
 	return &s, nil
 }
 
-func (s *Stream) buildDownloadURL() (string, error) {
-	if strings.Contains(s.url, "&signature=") {
-		return s.url, nil
+// getDownloadURL returns a url with a deciphered signature added
+// Building url is only conducted once.
+func (s *Stream) getDownloadURL() (string, error) {
+	// decipher signature and build download url only once
+	s.buildURLOnce.Do(
+		func() {
+			if strings.Contains(s.url, "&signature=") {
+				// signature has already been included
+				s.downloadURL = s.url
+				return
+			}
+
+			if s.signature != "" && s.decipherer != nil {
+				if decipheredSig, err := s.decipherer.Decipher(s.signature); err == nil {
+					s.downloadURL = fmt.Sprintf("%s&signature=%s", s.url, decipheredSig)
+				}
+			}
+		},
+	)
+
+	if s.downloadURL == "" {
+		return "", errors.New("failed to decipher signature")
 	}
-	if s.signature == "" {
-		return "", errors.New("stream url does not contain a signature and signature is not in this Stream structure either")
-	} else if s.decipherer == nil {
-		return "", errors.New("stream url does not contain a signature and decipherer is missin (nil) either")
-	}
-	decipheredSignature, err := s.decipherer.Decipher(s.signature)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s&signature=%s", s.url, decipheredSignature), nil
+	return s.downloadURL, nil
 }
 
 func (s *Stream) equal(other *Stream) bool {
