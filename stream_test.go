@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	mock "github.com/matthewlujp/gotube/lib/mocks"
+	mock "github.com/matthewlujp/gotube/mocks"
 )
 
 func TestNewStream(t *testing.T) {
