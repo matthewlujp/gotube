@@ -12,7 +12,7 @@ import (
 
 var (
 	logger                         *errorLogger
-	youtubeWatchURLPattern         = regexp.MustCompile(`https?://www.youtube.com/watch\?v=(\w{11})`)
+	youtubeWatchURLPattern         = regexp.MustCompile(`https?://www.youtube.com/watch\?v=([\w-]{11})`)
 	jsURLRegex                     = regexp.MustCompile(`.\"js\":\"(.+?)\"`)
 	ageRestrictedJsURLRegex        = regexp.MustCompile(`;yt\.setConfig\(\{\'PLAYER_CONFIG\':\s*{.+?"js":"(.+?)"}.+?}(,\'EXPERIMENT_FLAGS\'|;)`)
 	titleRegex                     = regexp.MustCompile(`"title":"(.+?)","`)
