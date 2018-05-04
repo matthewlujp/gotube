@@ -1,13 +1,18 @@
-test: ./mocks/mock_client.go ./mocks/mock_decipher.go
+.PHONY : build install test test-prepare
+
+install:
 	go get github.com/golang/mock/gomock
 	go get github.com/golang/mock/mockgen
-	go test
+	dep install
 
-./mocks/mock_client.go:
+test-prepare:
+	@echo "\nPreparing test........................................"
 	mockgen --source client.go --destination mocks/mock_client.go
-
-./mocks/mock_decipher.go:
 	mockgen --source decipher.go --destination mocks/mock_decipher.go
 
+test: | test-prepare
+	@echo "\nRun test........................................"
+	go test
+
 build:
-	go build -o downloader .
+	go build -o gotube .

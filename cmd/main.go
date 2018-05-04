@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	gotube "github.com/matthewlujp/gotube/lib"
+	"github.com/matthewlujp/gotube"
 	"github.com/pkg/profile"
 )
 
