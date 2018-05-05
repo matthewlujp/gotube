@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	maxSimultaneousRequests = 30
+	maxSimultaneousRequests = 20
 )
 
 var (
@@ -37,11 +37,11 @@ type Stream struct {
 	AudioCodec   string
 	Is3D         bool
 	IsLive       bool
+	Duration     time.Duration
 	signature    string
 	url          string
 	downloadURL  string
 	buildURLOnce sync.Once
-	duration     time.Duration
 	client       client
 	decipherer   decipherer
 }
@@ -108,6 +108,8 @@ func (s *Stream) ParallelDownload() ([]byte, error) {
 // A video is separated every {chunkDuration} seconds and they are requested in parallel
 // Bytes for {chunkDuration} seconds are calculated based on video duration and the bytes length.
 // Bytes length are checked before the get request by sending head rewquest.
+// TODO: return a channel for error as well
+// TODO: receive signal and stop goroutines
 func (s *Stream) SequentialChunkDownload(chunkDuration time.Duration) (<-chan []byte, error) {
 	ranges, errRanges := s.byteRanges(chunkDuration) // byte size of chunkDuration
 	if errRanges != nil {
@@ -144,20 +146,34 @@ func (s *Stream) SequentialChunkDownload(chunkDuration time.Duration) (<-chan []
 	semaphore := make(chan struct{}, maxSimultaneousRequests)
 
 	// parallel download
-	// TODO: use worker & dispatcher model to limit worker number
-	for i := range ranges[:len(ranges)-1] {
-		idx := i
-		go func() {
+	// TODO: use worker & dispatcher model to reuse goroutines
+	go func() {
+		for i := range ranges[:len(ranges)-1] {
 			semaphore <- struct{}{} // block if requests count exceeds the limit
-			var errDL error
-			collectedData[idx], errDL = s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
-			if errDL != nil {
-				logger.printf("range %d-%d, %s", ranges[idx], ranges[idx+1]-1, errDL)
-			}
-			<-semaphore // release one slot
-			doneChans[idx] <- struct{}{}
-		}()
-	}
+			idx := i
+			go func() {
+				defer func() {
+					<-semaphore // release one slot
+				}()
+				var errDL error
+				collectedData[idx], errDL = s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
+				if errDL != nil {
+					// TODO: retry 3 times
+					if strings.Contains(errDL.Error(), "operation timed out") {
+						logger.printf("range %d-%d, timeout -> retry", ranges[idx], ranges[idx+1]-1)
+						// retry for timeout
+						collectedData[idx], errDL = s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
+						if errDL != nil {
+							logger.printf("range %d-%d, retry failed, %s", ranges[idx], ranges[idx+1]-1, errDL)
+						}
+					} else {
+						logger.printf("range %d-%d, %s", ranges[idx], ranges[idx+1]-1, errDL)
+					}
+				}
+				doneChans[idx] <- struct{}{}
+			}()
+		}
+	}()
 
 	// a caller of this method receives data via outputChan
 	return outputChan, nil
@@ -212,10 +228,10 @@ func (s *Stream) byteRanges(duration time.Duration) ([]int, error) {
 
 // bytesForDuration estimates byte size for a given duration (seconds)
 func (s *Stream) bytesForDuration(dataSize int, fetchDuration time.Duration) int {
-	if s.duration == 0 {
+	if s.Duration == 0 {
 		return dataSize
 	}
-	return int(math.Floor(float64(dataSize) / float64(s.duration) * float64(fetchDuration)))
+	return int(math.Floor(float64(dataSize) / float64(s.Duration) * float64(fetchDuration)))
 }
 
 // GetSize returns content size of this stream
@@ -315,7 +331,7 @@ func newStream(streamInfo map[string]string, c client, d decipherer) (*Stream, e
 
 	if duration, ok := streamInfo["duration"]; ok {
 		if seconds, err := strconv.Atoi(duration); err == nil {
-			s.duration = time.Duration(seconds) * time.Second
+			s.Duration = time.Duration(seconds) * time.Second
 		}
 	}
 
@@ -364,5 +380,5 @@ func (s *Stream) equal(other *Stream) bool {
 		s.IsLive == other.IsLive &&
 		s.signature == other.signature &&
 		s.url == other.url &&
-		s.duration == other.duration
+		s.Duration == other.Duration
 }

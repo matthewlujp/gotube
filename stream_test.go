@@ -99,7 +99,7 @@ func TestParallelDownload(t *testing.T) {
 	stream := Stream{
 		signature:  "hoge",
 		url:        "https://foobar?itag=22",
-		duration:   time.Second * time.Duration(20*7.5),
+		Duration:   time.Second * time.Duration(20*7.5),
 		client:     c,
 		decipherer: d,
 	}
@@ -158,7 +158,7 @@ func TestSequentialChunkDownload(t *testing.T) {
 	stream := Stream{
 		signature:  "hoge",
 		url:        "https://foobar?itag=22",
-		duration:   time.Second * time.Duration(20*7.5),
+		Duration:   time.Second * time.Duration(20*7.5),
 		client:     c,
 		decipherer: d,
 	}
