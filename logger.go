@@ -13,7 +13,7 @@ type errorLogger struct {
 func newLogger(deploy bool) *errorLogger {
 	return &errorLogger{
 		debug:  deploy,
-		logger: log.New(os.Stdout, "gotube >", 0),
+		logger: log.New(os.Stderr, "gotube >", 0),
 	}
 }
 
