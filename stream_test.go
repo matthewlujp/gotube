@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -147,6 +148,85 @@ func TestParallelDownload(t *testing.T) {
 	if bytes.Compare(data, content) != 0 {
 		t.Errorf("got stream data %v, expected %v", data, content)
 	}
+}
+func TestSequentialChunkDownload(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	c := mock.NewMockclient(ctrl)
+	d := mock.NewMockdecipherer(ctrl)
+
+	stream := Stream{
+		signature:  "hoge",
+		url:        "https://foobar?itag=22",
+		duration:   time.Second * time.Duration(20*7.5),
+		client:     c,
+		decipherer: d,
+	}
+
+	content := []byte{
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	// 13 bytes for 20 * 7.5 = 150 seconds
+	// Since one request is for 20 seconds, 8 requests are supposed to make.
+	// One request is floor(17 / 8) = 2 bytes
+	// In order to keep request chunk sie 20 seconds, additional request is conducted.
+	d.EXPECT().Decipher("hoge").Return("geho", nil)
+	header := make(http.Header)
+	header.Set("Content-Length", "17")
+	exploreCall := c.EXPECT().Head("https://foobar?itag=22&signature=geho").Return(
+		&http.Response{
+			Header:     header,
+			StatusCode: 200,
+		},
+		nil,
+	)
+
+	for d := 0; d < 8; {
+		requestURL := fmt.Sprintf("https://foobar?itag=22&signature=geho&range=%d-%d", 2*d, 2*d+1)
+		c.EXPECT().Get(requestURL).Return(
+			&http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader(content[2*d : 2*d+2])),
+			},
+			nil,
+		).After(exploreCall)
+		d++
+	}
+	c.EXPECT().Get("https://foobar?itag=22&signature=geho&range=16-16").Return(
+		&http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(bytes.NewReader(content[16:17])),
+		},
+		nil,
+	).After(exploreCall)
+
+	log.Printf("start chunk download\n")
+	dataChan, errDownload := stream.SequentialChunkDownload(20 * time.Second)
+	if errDownload != nil {
+		t.Fatalf("stream donwload failed, %s", errDownload)
+	}
+
+	expectedDataChunks := [][]byte{
+		[]byte{0x00, 0x01},
+		[]byte{0x02, 0x03},
+		[]byte{0x04, 0x05},
+		[]byte{0x06, 0x07},
+		[]byte{0x08, 0x09},
+		[]byte{0x0A, 0x0B},
+		[]byte{0x0C, 0x0D},
+		[]byte{0x0E, 0x0F},
+		[]byte{0x10},
+	}
+	i := 0
+	for d := range dataChan {
+		log.Printf("data arrived %v\n", d)
+		if bytes.Compare(d, expectedDataChunks[i]) != 0 {
+			t.Errorf("got stream chunk data %v, expected %v", d, expectedDataChunks[i])
+		}
+		i++
+	}
+
 }
 
 func TestGetSize(t *testing.T) {

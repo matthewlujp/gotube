@@ -96,6 +96,57 @@ func (s *Stream) ParallelDownload() ([]byte, error) {
 	return collectedData[0], nil
 }
 
+// SequentialChunkDownload returns a channel from which you can receive data chunks successively.
+// Download is conducted in a goroutine (parallel) and []byte is sent through the returned channel in order.
+//
+// A video is separated every {chunkDuration} seconds and they are requested in parallel
+// Bytes for {chunkDuration} seconds are calculated based on video duration and the bytes length.
+// Bytes length are checked before the get request by sending head rewquest.
+func (s *Stream) SequentialChunkDownload(chunkDuration time.Duration) (<-chan []byte, error) {
+	ranges, errRanges := s.byteRanges(chunkDuration) // byte size of chunkDuration
+	if errRanges != nil {
+		return nil, errRanges
+	}
+
+	// decipher and get basic url
+	downloadURL, errURLBuild := s.getDownloadURL()
+	if errURLBuild != nil {
+		return nil, errURLBuild
+	}
+	logger.printf("download url prepared: %s", downloadURL)
+
+	// create a slice of channels to send obtained data
+	dataChans := []chan []byte{}
+	for i := 0; i < len(ranges)-1; i++ {
+		dataChans = append(dataChans, make(chan []byte))
+	}
+
+	// create another data channel for output
+	outputChan := make(chan []byte)
+	// reorder arrived data in a goroutine
+	go func() {
+		for _, ch := range dataChans {
+			data := <-ch
+			outputChan <- data
+		}
+	}()
+
+	// parallel download
+	// TODO: use worker & dispatcher model to limit worker number
+	for i := range ranges[:len(ranges)-1] {
+		idx := i
+		go func() {
+			data, _ := s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
+			// send data via dataChan[idx]
+			dataChans[idx] <- data
+			close(dataChans[idx])
+		}()
+	}
+
+	// a caller of this method receives data via outputChan
+	return outputChan, nil
+}
+
 // download get resource and return byte slice
 func (s *Stream) download(url string) ([]byte, error) {
 	res, errGet := s.client.Get(url)
