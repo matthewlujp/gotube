@@ -15,10 +15,16 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	maxSimultaneousRequests = 30
+)
+
 var (
 	mimeTypeCodecRegex = regexp.MustCompile(`([a-z]+?)/([a-z0-9]+?);\s*codecs=\"([\w\s.,]+?)\"`)
 )
 
+// Stream represents a video data of a specific format.
+// This structure is responsible for downloading video.
 type Stream struct {
 	itag         int
 	Abr          string
@@ -115,31 +121,41 @@ func (s *Stream) SequentialChunkDownload(chunkDuration time.Duration) (<-chan []
 	}
 	logger.printf("download url prepared: %s", downloadURL)
 
-	// create a slice of channels to send obtained data
-	dataChans := []chan []byte{}
+	// create a slice of channels to notify completion of data fetch by sending empty struct
+	doneChans := []chan struct{}{}
 	for i := 0; i < len(ranges)-1; i++ {
-		dataChans = append(dataChans, make(chan []byte))
+		doneChans = append(doneChans, make(chan struct{}))
 	}
+	// slice of []byte to save arriced data
+	collectedData := make([][]byte, len(ranges)-1)
 
 	// create another data channel for output
 	outputChan := make(chan []byte)
-	// reorder arrived data in a goroutine
+	// reorder arrived data and resend to outputChan in a goroutine
 	go func() {
-		for _, ch := range dataChans {
-			data := <-ch
-			outputChan <- data
+		for i, ch := range doneChans {
+			<-ch // wait data fetch completion notification
+			outputChan <- collectedData[i]
 		}
+		close(outputChan)
 	}()
+
+	// use semaphore to limit simultaneous request to YouTube
+	semaphore := make(chan struct{}, maxSimultaneousRequests)
 
 	// parallel download
 	// TODO: use worker & dispatcher model to limit worker number
 	for i := range ranges[:len(ranges)-1] {
 		idx := i
 		go func() {
-			data, _ := s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
-			// send data via dataChan[idx]
-			dataChans[idx] <- data
-			close(dataChans[idx])
+			semaphore <- struct{}{} // block if requests count exceeds the limit
+			var errDL error
+			collectedData[idx], errDL = s.download(fmt.Sprintf("%s&range=%d-%d", downloadURL, ranges[idx], ranges[idx+1]-1))
+			if errDL != nil {
+				logger.printf("range %d-%d, %s", ranges[idx], ranges[idx+1]-1, errDL)
+			}
+			<-semaphore // release one slot
+			doneChans[idx] <- struct{}{}
 		}()
 	}
 
