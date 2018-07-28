@@ -3,7 +3,7 @@ Youtube downloader implemented in Golang.
 This project is based on [nficano/pytube](https://github.com/nficano/pytube).
 
 # How to
-## Use as a library
+## Use as the library
 
 ```go:sample.go
 import gotube "github.com/matthewlujp/gotube/lib"
